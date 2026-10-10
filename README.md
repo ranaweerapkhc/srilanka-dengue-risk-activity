@@ -1,16 +1,18 @@
 # Predicting High-Risk Dengue Months in Sri Lanka
 
-This project explores whether recent dengue case reports can help identify which Sri Lankan districts may face an unusually high number of cases in an upcoming month. It compares Random Forest and XGBoost models, along with two ensemble approaches, and includes a small app for trying predictions.
+Dengue is a big problem in Sri Lanka, and outbreaks usually build up over a few months. In this project I wanted to see if the case counts from the last few months are enough to tell whether a district is heading into a bad month. I trained a Random Forest and an XGBoost model, tried two ways of combining them, and made a small Streamlit app to test predictions.
 
 ## What Counts as High Risk?
-For each district or RDHS area, a month is labelled **high risk** when its reported cases exceed that area's own 75th-percentile threshold, calculated from 2010–2018 data. The model uses information that would be available at the start of the month: case counts from the previous three months and from the same month a year earlier. The goal is to help inform planning for measures such as fogging, clean-up campaigns, and hospital preparedness.
+Each district has a very different number of cases (Colombo gets far more than Mannar), so I couldn't use one cut-off for everyone. Instead, a month is **high risk** if that district's cases are above its own 75th percentile, worked out from 2010–2018 data.
 
-- **Task:** binary classification
-- **Data:** 3,432 monthly records covering 26 Sri Lankan districts and RDHS areas from 2010–2020. The figures come from the Ministry of Health Epidemiology Unit and were published on Kaggle and redistributed through the [`denguedatasets`](https://pypi.org/project/denguedatasets/) package. A copy is included in `data/`.
+The model only uses things you would already know at the start of the month: the cases from the last three months and the cases in the same month last year. The idea is that health officers could use something like this to plan fogging, clean-up campaigns or hospital beds a bit earlier.
 
-## How the Models Performed
+- **Task:** binary classification (high risk / normal)
+- **Data:** 3,432 monthly records for 26 districts and RDHS areas, 2010–2020. The numbers are from the Epidemiology Unit of the Ministry of Health. I got them through Kaggle and the [`denguedatasets`](https://pypi.org/project/denguedatasets/) package. A copy is in `data/`.
 
-The results below are for the 2019–2020 test period, which contains 623 district-months.
+## Results
+
+I tested on 2019–2020 (623 district-months), which the models never saw during training.
 
 | Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|---|
@@ -20,9 +22,11 @@ The results below are for the 2019–2020 test period, which contains 623 distri
 | Stacking (RF+XGB → LR) | 0.831 | 0.683 | **0.862** | 0.762 | **0.924** |
 | Baseline: "last month was high" | 0.865 | 0.773 | 0.805 | 0.789 | n/a |
 
-XGBoost performed best among the individual models, while stacking found the largest share of high-risk months (the highest recall). There is an important comparison, though: simply predicting that this month will be high risk whenever last month was high risk gives a similar F1 score to XGBoost. The models may be most useful for ranking risk and spotting districts where risk is rising (XGBoost ROC-AUC: 0.923). The notebook's Section 5.2 discusses these results, including the project's strengths and limitations.
+XGBoost was the better of the two single models. Stacking caught the most high-risk months (highest recall).
 
-As a quick example, Colombo in December 2020 was held out before training. The model predicted *Normal* with a high-risk probability of 0.09. The district reported 92 cases, below its threshold of 1,339, so the prediction was correct.
+The thing that surprised me was the baseline. If you just say "this month is high risk because last month was", you get about the same F1 as XGBoost. So the models don't really beat common sense at a yes/no answer. Where they are more useful is ranking districts by risk and noticing when risk is starting to go up, which is what the ROC-AUC of 0.923 shows. I talk about this more, along with the limitations, in Section 5.2 of the notebook.
+
+Example: I kept Colombo, December 2020 out of training. The model said *Normal* (0.09 probability of high risk). Colombo had 92 cases that month, well under its threshold of 1,339, so it got this one right.
 
 ## Project Files
 ```
@@ -34,9 +38,9 @@ models/ensemble_model.pkl    # soft-voting RF+XGB pipeline
 app/app.py                   # Streamlit front end
 ```
 
-## Run the Project
+## How to Run
 
-Install the dependencies, then choose whether to explore the notebook or launch the app:
+You need Python 3.12 or newer.
 
 ```bash
 pip install -r requirements.txt
@@ -46,7 +50,7 @@ streamlit run app/app.py                      # open the web app
 
 ## Prompt Used to Build the App
 
-The following prompt was used for the app-building step of the class activity:
+This is the prompt I used for the app-building part of the class activity:
 
 > I have developed a machine-learning model in Python to predict whether a Sri Lankan district will have a high-risk dengue month. The trained scikit-learn pipeline is saved with pickle in `models/model.pkl` as a dict with keys `model`, `thresholds` (district → case threshold), `districts`, `model_name`, `train_years` and `test_metrics`. Features are built by `build_features(df)` in `features.py`, which takes a DataFrame with these raw fields:
 > - `district` (one of the 26 names in `districts`)
@@ -58,8 +62,8 @@ The following prompt was used for the app-building step of the class activity:
 
 ## Model Settings
 
-These non-default hyperparameters are documented in Section 3 of the notebook:
+These are the settings I changed from the defaults (explained in Section 3 of the notebook):
 - **Random Forest:** `n_estimators=500, max_depth=6, min_samples_leaf=10, max_features="sqrt", class_weight="balanced"`
 - **XGBoost:** `n_estimators=300, learning_rate=0.05, max_depth=3, subsample=0.8, colsample_bytree=0.8, min_child_weight=3, gamma=0.1, reg_lambda=2.0, scale_pos_weight≈3.07`
 
-The settings were selected with the dataset's size, noise, and class imbalance in mind, then evaluated through a grid search using `TimeSeriesSplit` folds.
+The dataset is small and noisy, and only about a quarter of the months are high risk, so I kept the trees shallow and balanced the classes. I picked the final values with a grid search using `TimeSeriesSplit`, so the model was never validated on months earlier than the ones it trained on.
